@@ -1,202 +1,134 @@
 from google.colab import drive
 drive.mount('/content/drive')
-!pip install streamlitimport streamlit as st
+!pip install streamlit
+import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-
-# Set page configuration
 st.set_page_config(
     page_title="Student Academic Stress Classifier",
     layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Load the trained model, scaler, and encoder
+    initial_sidebar_state="expanded")
 @st.cache_resource
 def load_artifacts():
     try:
         model = joblib.load('academic_stress_model.pkl')
         scaler = joblib.load('scaler.pkl')
-        # Check if label encoder exists
-        try:= joblib.load('label_encoder.pkl')
+        try:
+            le = joblib.load('label_encoder.pkl')
         except:
             le = None
-
-        # Try to get feature names from a saved file
         try:
             feature_names = joblib.load('feature_names.pkl')
         except:
             feature_names = None
-
         return model, scaler, le, feature_names
     except FileNotFoundError:
         st.error("Model files not found. Please make sure you've trained the model first.")
         return None, None, None, None
-
-# Main function
-def main():
-    # Title and description
+def main()
     st.title("Student Academic Stress Classification")
     st.write("This app predicts a student's academic stress level based on various factors.")
     st.write("Fill in the information below and click 'Predict' to see the results.")
-
-    # Load model artifacts
     model, scaler, le, feature_names = load_artifacts()
-
-    # Sidebar for navigation
     st.sidebar.title("Navigation")
     app_mode = st.sidebar.selectbox("Choose a page", ["Prediction", "Data Analysis", "About"])
-
     if app_mode == "Prediction":
         prediction_page(model, scaler, le, feature_names)
     elif app_mode == "Data Analysis":
         data_analysis_page()
     elif app_mode == "About":
         about_page()
-
 def prediction_page(model, scaler, le, feature_names):
     if model is None or scaler is None:
         st.error("Please train the model first before using the prediction feature.")
         return
-
     if feature_names is None:
         st.error("Could not determine the feature names. Please check if feature_names.pkl exists.")
         st.info("Run the feature extraction script first to create feature_names.pkl")
         return
-
     st.info(f"Model was trained on {len(feature_names)} features")
-
-    # Create input fields based on the feature names
     input_data = {}
-
-    # Create appropriate input based on feature name
     for feature in feature_names:
-        # Clean up the feature name for display
         display_name = feature.replace('_', ' ').title()
-
-        # Create appropriate input based on feature name
         if 'timestamp' in feature.lower():
-            # For timestamp, let's use a date input and convert to numerical
             date_val = st.date_input(f"{display_name}", value=pd.Timestamp.now())
-            input_data[feature] = date_val.toordinal()  # Convert to ordinal number
+            input_data[feature] = date_val.toordinal() 
         elif 'academic_stage' in feature.lower():
-            # Academic stage dropdown - convert to numerical
             stages = ["High School", "Undergraduate", "Graduate", "PhD"]
             stage_mapping = {"High School": 1, "Undergraduate": 2, "Graduate": 3, "PhD": 4}
             selected = st.selectbox(f"{display_name}", stages)
             input_data[feature] = stage_mapping[selected]
         elif 'coping_strategy' in feature.lower():
-            # Coping strategy - use count of strategies
             strategies = ["Exercise", "Meditation", "Talking to friends", "Professional help", "Other"]
             selected = st.multiselect(f"{display_name}", strategies, default=["Exercise"])
-            input_data[feature] = len(selected)  # Use count as numerical value
+            input_data[feature] = len(selected)  
         elif 'bad_habits' in feature.lower() or 'smoking' in feature.lower() or 'drinking' in feature.lower():
-            # Yes/No for bad habits - convert to 0/1
             selected = st.selectbox(f"{display_name}", ["No", "Yes"])
             input_data[feature] = 1 if selected == "Yes" else 0
         elif any(term in feature.lower() for term in ['pressure', 'stress', 'environment', 'quality', 'rate', 'competition']):
-            # Likert scale 1-5 (already numerical)
             input_data[feature] = st.slider(f"{display_name} (1-5)", 1, 5, 3)
         else:
-            # Default to a slider for other features
             input_data[feature] = st.slider(f"{display_name} (1-10)", 1, 10, 5)
-
-    # Create a button for prediction
     if st.button("Predict Stress Level"):
-        # Convert input data to DataFrame with correct feature order
         input_df = pd.DataFrame([input_data])[feature_names]
-
-        # Ensure all values are numerical
         input_df = input_df.apply(pd.to_numeric, errors='coerce')
-
-        # Check for any NaN values that might have been created
         if input_df.isnull().any().any():
             st.error("Error: Some input values could not be converted to numbers. Please check your inputs.")
             return
-
-        # Scale the input data
         input_scaled = scaler.transform(input_df)
-
-        # Make prediction
         prediction = model.predict(input_scaled)
-
-        # Debug information
         st.write("Raw prediction value:", prediction[0])
-
-        # If we have a label encoder, decode the prediction
         if le is not None:
             prediction_label = le.inverse_transform(prediction)[0]
             st.success("Predicted Stress Level: **{}**".format(prediction_label))
         else:
-            # Based on the debug output, we have 5 classes (0-4)
-            stress_mapping = {
-                0: "No Stress",
-                1: "Very Low Stress",
-                2: "Low Stress",
-                3: "Medium Stress",
-                4: "High Stress"
-            }
-
+            stress_mapping = 
+             {0: "No Stress",
+              1: "Very Low Stress",
+              2: "Low Stress",
+              3: "Medium Stress",
+              4: "High Stress"}
             if prediction[0] in stress_mapping:
                 prediction_label = stress_mapping[prediction[0]]
             else:
                 prediction_label = "Unknown (Value: {})".format(prediction[0])
 
             st.success("Predicted Stress Level: **{}**".format(prediction_label))
-
-        # Show probability distribution
         try:
             probabilities = model.predict_proba(input_scaled)[0]
             st.subheader("Prediction Probabilities")
-
-            # Create class labels based on the stress mapping
             class_labels = ["No Stress", "Very Low Stress", "Low Stress", "Medium Stress", "High Stress"]
-
-            # Create a bar chart of probabilities
             fig, ax = plt.subplots(figsize=(10, 6))
             colors = ['lightgreen', 'lightblue', 'lightyellow', 'lightcoral', 'salmon']
             bars = ax.bar(class_labels, probabilities, color=colors[:len(probabilities)])
             ax.set_ylabel("Probability")
             ax.set_title("Stress Level Prediction Probabilities")
             plt.xticks(rotation=45, ha='right')
-
-            # Add value labels on bars
             for bar, prob in zip(bars, probabilities):
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
                         f'{prob:.2%}', ha='center', va='bottom')
-
             st.pyplot(fig)
-
-            # Also show numerical values
             for i, prob in enumerate(probabilities):
                 st.write("**{}**: {:.2f}%".format(class_labels[i], prob * 100))
-
         except Exception as e:
             st.info("Probability information is not available for this model.")
             st.write("Error:", e)
-
 def data_analysis_page():
     st.header("Data Analysis")
-
-    # Let the user upload a file
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-if uploaded_file is not None:
+    if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
-
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('-', '_')
-
             st.subheader("Dataset Overview")
             st.dataframe(df.head())
-
             st.subheader("Dataset Statistics")
             st.write(df.describe())
-
             target_candidates = ['stress_level', 'stress', 'level', 'target']
             target_col = None
             for col in target_candidates:
@@ -205,7 +137,6 @@ if uploaded_file is not None:
                     break
             if target_col is None:
                 target_col = df.columns[-1]
-
             st.subheader("Target Variable Distribution")
             fig, ax = plt.subplots()
             df[target_col].value_counts().plot(kind='bar', ax=ax)
@@ -213,19 +144,15 @@ if uploaded_file is not None:
             ax.set_xlabel('Stress Level')
             ax.set_ylabel('Count')
             st.pyplot(fig)
-
-            # Show feature names for reference
             st.subheader("Feature Names")
             feature_names = df.drop(columns=[target_col]).columns.tolist()
             st.write(f"The dataset contains these {len(feature_names)} features:")
             for i, feature in enumerate(feature_names):
                 st.write(f"{i+1}. {feature}")
-
         except Exception as e:
             st.error(f"Error loading dataset: {e}")
     else:
         st.info("Please upload a CSV file to view data analysis.")
-
 def about_page():
     st.header("About This App")
     st.write("This application uses a Machine Learning model to predict student academic stress levels based on various factors such as academic performance, sleep quality, and social support.")
@@ -235,14 +162,10 @@ def about_page():
     st.write("3. The model was optimized using hyperparameter tuning")
     st.subheader("Disclaimer")
     st.info("This tool is for educational purposes only and should not be used as a substitute for professional mental health advice.")
-
 if __name__ == "__main__":
     main()
 import kagglehub
-
-# Download latest version
 path = kagglehub.dataset_download("poushal02/student-academic-stress-real-world-dataset")
-
 print("Path to dataset files:", path)
 import pandas as pd
 import numpy as np
@@ -257,55 +180,34 @@ import joblib
 import os
 import warnings
 warnings.filterwarnings('ignore')
-
-# Set style for plots
 plt.style.use('ggplot')
-# Load the dataset from the path obtained via kagglehub
-dataset_path = path  # This is the path you obtained from kagglehub
-
-# List files in the downloaded directory
+dataset_path = path
 print("Files in the dataset directory:")
 for file in os.listdir(dataset_path):
     print(file)
-
-# Look for CSV files
 csv_files = [f for f in os.listdir(dataset_path) if f.endswith('.csv')]
 print(f"\nCSV files found: {csv_files}")
-
-# Load the dataset (assuming the first CSV is our dataset)
 dataset_file = os.path.join(dataset_path, csv_files[0])
 df = pd.read_csv(dataset_file)
-
-# Display basic information
 print("Dataset Shape:", df.shape)
 print("\nFirst 5 rows:")
 df.head()
-# Clean column names
 df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('-', '_')
 print("Cleaned column names:")
 print(df.columns.tolist())
-# Check for missing values
 print("Missing values in each column:")
 print(df.isnull().sum())
-
-# Check data types
 print("\nData types:")
 print(df.dtypes)
-# Identify the target variable
-target_candidates = ['stress_level', 'stress', 'level', 'target']
+arget_candidates = ['stress_level', 'stress', 'level', 'target']
 target_col = None
-
 for col in target_candidates:
     if col in df.columns:
         target_col = col
         break
-
 if target_col is None:
     target_col = df.columns[-1]
-
 print(f"Using '{target_col}' as target variable")
-
-# Check the distribution of the target variable
 plt.figure(figsize=(8, 6))
 df[target_col].value_counts().plot(kind='bar', color=['skyblue', 'lightcoral', 'lightgreen'])
 plt.title('Distribution of Stress Levels')
@@ -313,17 +215,13 @@ plt.xlabel('Stress Level')
 plt.ylabel('Count')
 plt.xticks(rotation=0)
 plt.show()
-# Encode categorical variables if any
 categorical_cols = df.select_dtypes(include=['object']).columns
 print("Categorical columns:", categorical_cols.tolist())
-
 if len(categorical_cols) > 0:
     le = LabelEncoder()
     for col in categorical_cols:
-        if col != target_col:  # Don't encode target yet
+        if col != target_col: 
             df[col] = le.fit_transform(df[col])
-
-# Check if target needs encoding
 if df[target_col].dtype == 'object':
     le_target = LabelEncoder()
     df[target_col] = le_target.fit_transform(df[target_col])
@@ -331,60 +229,34 @@ if df[target_col].dtype == 'object':
     print("Encoded values mapping:")
     for i, class_name in enumerate(le_target.classes_):
         print(f"{i}: {class_name}")
-
-# Separate features and target
 X = df.drop(target_col, axis=1)
 y = df[target_col]
-
-# Split the data
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
-# Scale the features
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
-
 print("Training set shape:", X_train_scaled.shape)
 print("Testing set shape:", X_test_scaled.shape)
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-from sklearn.model_selection import GridSearchCV # Import GridSearchCV
+from sklearn.model_selection import GridSearchCV 
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-# Initialize the Random Forest classifier
 rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
-
-# Define the parameter grid for GridSearchCV
 param_grid = {
     'n_estimators': [100, 200, 300],
     'max_depth': [None, 10, 20, 30],
     'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4]
-}
-
-# Initialize GridSearchCV
+    'min_samples_leaf': [1, 2, 4]}
 grid_search = GridSearchCV(estimator=rf_model, param_grid=param_grid,
                            cv=5, n_jobs=-1, verbose=1, scoring='accuracy')
-
-# Fit GridSearchCV to the training data
 grid_search.fit(X_train_scaled, y_train)
-
-# Get the best estimator
 best_rf_model = grid_search.best_estimator_
-
-# Make predictions with the best model
 y_pred_tuned = best_rf_model.predict(X_test_scaled)
-
-# Evaluate the best model
 accuracy = accuracy_score(y_test, y_pred_tuned)
 print(f"Tuned Model Accuracy: {accuracy:.4f}")
-
-# Classification report for the tuned model
 print("\nClassification Report for Tuned Model:")
 print(classification_report(y_test, y_pred_tuned))
-
-# Confusion matrix for the tuned model
 plt.figure(figsize=(8, 6))
 cm_tuned = confusion_matrix(y_test, y_pred_tuned)
 sns.heatmap(cm_tuned, annot=True, fmt='d', cmap='Blues')
@@ -392,76 +264,46 @@ plt.title('Confusion Matrix (Tuned Model)')
 plt.ylabel('Actual')
 plt.xlabel('Predicted')
 plt.show()
-# Get feature importances
 importances = rf_model.feature_importances_
 feature_names = X.columns
-
-# Create a DataFrame for feature importances
 feature_importances = pd.DataFrame({
     'feature': feature_names,
     'importance': importances
 }).sort_values('importance', ascending=False)
-
-# Plot feature importances
 plt.figure(figsize=(12, 8))
 sns.barplot(x='importance', y='feature', data=feature_importances)
 plt.title('Feature Importances')
 plt.tight_layout()
 plt.show()
-
-# Display top features
 print("Top features:")
 print(feature_importances.head(10))
-# Final Model Evaluation
-final_model = grid_search.best_estimator_
-
-# Make predictions for the classification report
+inal_model = grid_search.best_estimator_
 y_pred_tuned = final_model.predict(X_test_scaled)
-
-# Detailed classification report
 print("Final Model Classification Report:")
 print(classification_report(y_test, y_pred_tuned))
-
-# Save the model
 joblib.dump(final_model, 'academic_stress_model.pkl')
 joblib.dump(scaler, 'scaler.pkl')
-
-# Ensure le_target is saved if it exists
-if 'le_target' in globals(): # Use globals() to check for global variable
+if 'le_target' in globals(): 
     joblib.dump(le_target, 'label_encoder.pkl')
-
 print("Model, scaler, and encoder (if applicable) saved successfully!")
 feature_names = X.columns.tolist()
-
-# Save feature names
 joblib.dump(feature_names, 'feature_names.pkl')
-
 print(f"Saved {len(feature_names)} feature names to 'feature_names.pkl'")
 print("Feature names:", feature_names)
 %%bash
 pip freeze > requirements.txt
 echo "requirements.txt created with installed Python packages."
 import os
-
-# Ensure requirements.txt is created if it doesn't exist
 if not os.path.exists('requirements.txt'):
     !pip freeze > requirements.txt
     print("requirements.txt created with installed Python packages.")
-
-# Now, read and print the requirements
 with open('requirements.txt', 'r') as f:
     requirements = f.read()
 print(requirements)
 !pip install pyngrok
 from pyngrok import ngrok
-
-# Replace 'YOUR_NGROK_AUTHTOKEN' with your actual ngrok authtoken
-# You can get this from https://dashboard.ngrok.com/get-started/your-authtoken
-# For better security, consider storing this in Colab Secrets
-NGROK_AUTH_TOKEN = "35pNcSvfhCBfLT4PxQhPEuIvyLu_2PqfKri4PRz9UjSoBtzwr" # Please replace this with your actual ngrok authtoken
-
+NGROK_AUTH_TOKEN = "35pNcSvfhCBfLT4PxQhPEuIvyLu_2PqfKri4PRz9UjSoBtzwr" 
 ngrok.set_auth_token(NGROK_AUTH_TOKEN)
-
 print("ngrok authtoken set.")
 %%writefile app.py
 import streamlit as st
@@ -471,198 +313,126 @@ import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-
-# Set page configuration
 st.set_page_config(
     page_title="Student Academic Stress Classifier",
     layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Load the trained model, scaler, and encoder
+    initial_sidebar_state="expanded")
 @st.cache_resource
 def load_artifacts():
     try:
         model = joblib.load('academic_stress_model.pkl')
         scaler = joblib.load('scaler.pkl')
-        # Check if label encoder exists
         try:
             le = joblib.load('label_encoder.pkl')
         except:
             le = None
-
-        # Try to get feature names from a saved file
         try:
             feature_names = joblib.load('feature_names.pkl')
         except:
             feature_names = None
-
         return model, scaler, le, feature_names
     except FileNotFoundError:
         st.error("Model files not found. Please make sure you've trained the model first.")
         return None, None, None, None
-
-# Main function
 def main():
-    # Title and description
     st.title("Student Academic Stress Classification")
     st.write("This app predicts a student's academic stress level based on various factors.")
     st.write("Fill in the information below and click 'Predict' to see the results.")
-
-    # Load model artifacts
     model, scaler, le, feature_names = load_artifacts()
-
-    # Sidebar for navigation
     st.sidebar.title("Navigation")
     app_mode = st.sidebar.selectbox("Choose a page", ["Prediction", "Data Analysis", "About"])
-
     if app_mode == "Prediction":
         prediction_page(model, scaler, le, feature_names)
     elif app_mode == "Data Analysis":
         data_analysis_page()
     elif app_mode == "About":
         about_page()
-
 def prediction_page(model, scaler, le, feature_names):
     if model is None or scaler is None:
         st.error("Please train the model first before using the prediction feature.")
         return
-
     if feature_names is None:
         st.error("Could not determine the feature names. Please check if feature_names.pkl exists.")
         st.info("Run the feature extraction script first to create feature_names.pkl")
         return
-
     st.info(f"Model was trained on {len(feature_names)} features")
-
-    # Create input fields based on the feature names
     input_data = {}
-
-    # Create appropriate input based on feature name
     for feature in feature_names:
-        # Clean up the feature name for display
         display_name = feature.replace('_', ' ').title()
-
-        # Create appropriate input based on feature name
         if 'timestamp' in feature.lower():
-            # For timestamp, let's use a date input and convert to numerical
             date_val = st.date_input(f"{display_name}", value=pd.Timestamp.now())
-            input_data[feature] = date_val.toordinal()  # Convert to ordinal number
+            input_data[feature] = date_val.toordinal() 
         elif 'academic_stage' in feature.lower():
-            # Academic stage dropdown - convert to numerical
             stages = ["High School", "Undergraduate", "Graduate", "PhD"]
             stage_mapping = {"High School": 1, "Undergraduate": 2, "Graduate": 3, "PhD": 4}
             selected = st.selectbox(f"{display_name}", stages)
             input_data[feature] = stage_mapping[selected]
         elif 'coping_strategy' in feature.lower():
-            # Coping strategy - use count of strategies
             strategies = ["Exercise", "Meditation", "Talking to friends", "Professional help", "Other"]
             selected = st.multiselect(f"{display_name}", strategies, default=["Exercise"])
-            input_data[feature] = len(selected)  # Use count as numerical value
+            input_data[feature] = len(selected) 
         elif 'bad_habits' in feature.lower() or 'smoking' in feature.lower() or 'drinking' in feature.lower():
-            # Yes/No for bad habits - convert to 0/1
             selected = st.selectbox(f"{display_name}", ["No", "Yes"])
             input_data[feature] = 1 if selected == "Yes" else 0
         elif any(term in feature.lower() for term in ['pressure', 'stress', 'environment', 'quality', 'rate', 'competition']):
-            # Likert scale 1-5 (already numerical)
             input_data[feature] = st.slider(f"{display_name} (1-5)", 1, 5, 3)
         else:
-            # Default to a slider for other features
             input_data[feature] = st.slider(f"{display_name} (1-10)", 1, 10, 5)
-
-    # Create a button for prediction
     if st.button("Predict Stress Level"):
-        # Convert input data to DataFrame with correct feature order
         input_df = pd.DataFrame([input_data])[feature_names]
-
-        # Ensure all values are numerical
         input_df = input_df.apply(pd.to_numeric, errors='coerce')
-
-        # Check for any NaN values that might have been created
         if input_df.isnull().any().any():
             st.error("Error: Some input values could not be converted to numbers. Please check your inputs.")
             return
-
-        # Scale the input data
         input_scaled = scaler.transform(input_df)
-
-        # Make prediction
         prediction = model.predict(input_scaled)
-
-        # Debug information
         st.write("Raw prediction value:", prediction[0])
-
-        # If we have a label encoder, decode the prediction
         if le is not None:
             prediction_label = le.inverse_transform(prediction)[0]
             st.success("Predicted Stress Level: **{}**".format(prediction_label))
         else:
-            # Based on the debug output, we have 5 classes (0-4)
             stress_mapping = {
                 0: "No Stress",
                 1: "Very Low Stress",
                 2: "Low Stress",
                 3: "Medium Stress",
-                4: "High Stress"
-            }
-
+                4: "High Stress"}
             if prediction[0] in stress_mapping:
                 prediction_label = stress_mapping[prediction[0]]
             else:
                 prediction_label = "Unknown (Value: {})".format(prediction[0])
-
             st.success("Predicted Stress Level: **{}**".format(prediction_label))
-
-        # Show probability distribution
         try:
             probabilities = model.predict_proba(input_scaled)[0]
             st.subheader("Prediction Probabilities")
-
-            # Create class labels based on the stress mapping
             class_labels = ["No Stress", "Very Low Stress", "Low Stress", "Medium Stress", "High Stress"]
-
-            # Create a bar chart of probabilities
             fig, ax = plt.subplots(figsize=(10, 6))
             colors = ['lightgreen', 'lightblue', 'lightyellow', 'lightcoral', 'salmon']
             bars = ax.bar(class_labels, probabilities, color=colors[:len(probabilities)])
             ax.set_ylabel("Probability")
             ax.set_title("Stress Level Prediction Probabilities")
             plt.xticks(rotation=45, ha='right')
-
-            # Add value labels on bars
             for bar, prob in zip(bars, probabilities):
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
                         f'{prob:.2%}', ha='center', va='bottom')
-
             st.pyplot(fig)
-
-            # Also show numerical values
             for i, prob in enumerate(probabilities):
                 st.write("**{}**: {:.2f}% uncommon value (uncomment this for normal app)".format(class_labels[i], prob * 100))
-
         except Exception as e:
             st.info("Probability information is not available for this model.")
             st.write("Error:", e)
-
 def data_analysis_page():
     st.header("Data Analysis")
-
-    # Let the user upload a file
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
-
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('-', '_')
-
             st.subheader("Dataset Overview")
             st.dataframe(df.head())
-
             st.subheader("Dataset Statistics")
             st.write(df.describe())
-
             target_candidates = ['stress_level', 'stress', 'level', 'target']
             target_col = None
             for col in target_candidates:
@@ -671,7 +441,6 @@ def data_analysis_page():
                     break
             if target_col is None:
                 target_col = df.columns[-1]
-
             st.subheader("Target Variable Distribution")
             fig, ax = plt.subplots()
             df[target_col].value_counts().plot(kind='bar', ax=ax)
@@ -679,19 +448,15 @@ def data_analysis_page():
             ax.set_xlabel('Stress Level')
             ax.set_ylabel('Count')
             st.pyplot(fig)
-
-            # Show feature names for reference
             st.subheader("Feature Names")
             feature_names = df.drop(columns=[target_col]).columns.tolist()
             st.write(f"The dataset contains these {len(feature_names)} features:")
             for i, feature in enumerate(feature_names):
                 st.write(f"{i+1}. {feature}")
-
         except Exception as e:
             st.error(f"Error loading dataset: {e}")
     else:
         st.info("Please upload a CSV file to view data analysis.")
-
 def about_page():
     st.header("About This App")
     st.write("This application uses a Machine Learning model to predict student academic stress levels based on various factors such as academic performance, sleep quality, and social support.")
@@ -701,47 +466,32 @@ def about_page():
     st.write("3. The model was optimized using hyperparameter tuning")
     st.subheader("Disclaimer")
     st.info("This tool is for educational purposes only and should not be used as a substitute for professional mental health advice.")
-
 if __name__ == "__main__":
     main()
 from pyngrok import ngrok
 import subprocess
 import os
 import time
-
-# Kill any processes running on port 8501 (Streamlit's default port)
 try:
     !kill $(lsof -t -i:8501)
 except subprocess.CalledProcessError:
     pass
 except Exception as e:
     print(f"Warning: Could not kill process on port 8501. {e}")
-
-# Define the path to app.py
 app_path = os.path.join(os.getcwd(), 'app.py')
-
-# --- Diagnostic: Check if app.py exists ---
 if not os.path.exists(app_path):
     print(f"Error: app.py not found at {app_path}. Please ensure it was created correctly.")
 else:
     print(f"app.py found at {app_path}")
-# --- End Diagnostic ---
-
-
-# Run Streamlit app in the background, capturing its output
 streamlit_command = ['python3', '-m', 'streamlit', 'run', app_path, '--server.port', '8501', '--server.enableCORS', 'false', '--server.enableXsrfProtection', 'false']
 streamlit_process = subprocess.Popen(
     streamlit_command,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
-    bufsize=1
-)
-
+    bufsize=1)
 print("Waiting for Streamlit to start...")
-# Give Streamlit more time to start up (e.g., 45 seconds)
 time.sleep(45)
-# Check if Streamlit process is still alive
 if streamlit_process.poll() is not None:
     stdout, stderr = streamlit_process.communicate()
     print("Streamlit process exited unexpectedly during startup.")
@@ -750,13 +500,11 @@ if streamlit_process.poll() is not None:
     print("Ngrok tunnel will not be started.")
 else:
     print("Streamlit process appears to be running. Attempting ngrok connection...")
-    # Start ngrok tunnel
     try:
         public_url = ngrok.connect(8501)
         print("Streamlit App URL:", public_url)
         print("Please copy and paste this URL into your browser to access the app.")
         print("\n--- Monitoring Streamlit process ---")
-        # Keep checking the Streamlit process in a loop
         while True:
             if streamlit_process.poll() is not None:
                 print("\nStreamlit process has terminated.")
@@ -764,11 +512,10 @@ else:
                 print("Streamlit stdout:", stdout)
                 print("Streamlit stderr:", stderr)
                 break
-            time.sleep(5) # Check every 5 seconds
+            time.sleep(5) 
     except Exception as e:
         print(f"Error starting ngrok tunnel: {e}")
     finally:
-        # Ensure Streamlit output is printed if ngrok fails or after loop
         if streamlit_process.poll() is None:
             print("Streamlit is still running in the background. If you close the notebook, it will stop.")
         else:
